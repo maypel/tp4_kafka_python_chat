@@ -7,49 +7,44 @@ import json
 
 from kafka import KafkaProducer, KafkaConsumer
 
-
+should_quit = False
 
 def serializer(message):
     return json.dumps(message).encode('utf-8')
 
-def read_messages(consumer):
+def deserializer(message):
+    return json.loads(message)
+
+def read_messages(consumer, *args):
     # TODO À compléter
-    print(consumer)
-    received = consumer.poll(100)
-    print(f"received: {received}")
-
-    for channel, messages in received.items():
-        print(f"channel , messages: {channel}, {messages}")
-
-    # while not should_quit:
+    
+    while not should_quit:
         
-    #     # On utilise poll pour ne pas bloquer indéfiniment quand should_quit
-    #     # devient True
-    #     received = consumer.poll(100)
-    #     print(f"received: {received}")
+        # On utilise poll pour ne pas bloquer indéfiniment quand should_quit
+        # devient True
+        received = consumer.poll(100)
+        
 
-    #     for channel, messages in received.items():
-    #         print(f"channel , messages: {channel}, {messages}")
-    #         for msg in messages:
-    #             print(f"msg: {msg}")
-    #             print("< #%s: %s" % (channel, msg.value))
-
+        for channel, messages in received.items():
+            print(f"channel , messages: {channel}, {messages}")
+            for msg in messages:
+                message = deserializer(msg.value.decode()) #dictionnaire obtenu
+                print("< #%s: %s" % (channel, message))
+            
 
 def cmd_msg(producer, channel, line, nick):
     # TODO À compléter
-    print(f"ceci est le channel: {channel}")
+    
+    
     if channel == None:
         print("veuillez joindre un canal")
     else:
+        channel = "chat_channel_" + channel[1:]
         message = serializer(line) #+ nick
         producer.send(channel, message)
-        
     
-
-
-
+  
 def cmd_join(consumer, producer, line):
-    # TODO À compléter
     
     match_line = re.match(r"^#[a-zA-Z0-9_-]+$", line)
     
@@ -58,19 +53,20 @@ def cmd_join(consumer, producer, line):
         # créer une liste des souscriptions
         # y ajouter la dernière
         list_subscription = consumer.subscription()
-        chan = "chat_channel_" + str(line[1:])
+        chan = "chat_channel_" + line[1:]
+        print(chan)
 
         if list_subscription == None:
             list_subscription = set()
         list_subscription.add(chan)
         consumer.subscribe(list_subscription)
-        print(consumer.subscription())
         print(f"vous avez rejoint : {chan}")
 
+        return line
     else:
         print("Veuillez rentrer un nom de canal valide (commence par #, pas de caractères spéciaux excepté - et _")
         
-    return line
+    
 
 def cmd_part(consumer, producer, line):
     # TODO À compléter
@@ -119,6 +115,7 @@ def main_loop(nick, consumer, producer):
 
         if cmd == "msg":
             cmd_msg(producer, curchan, args, nick)
+            
 
         elif cmd == "join":
             curchan = cmd_join(consumer, producer, args)
@@ -132,6 +129,7 @@ def main_loop(nick, consumer, producer):
             cmd_quit(producer, args)
             break
         # TODO: rajouter des commandes ici
+        # read_messages(consumer, *args)
 
 
 def main():
@@ -140,8 +138,8 @@ def main():
         return 1
 
     nick = sys.argv[1]
-    consumer = KafkaConsumer()
-    producer = KafkaProducer()
+    consumer = KafkaConsumer(bootstrap_servers="localhost:9092", group_id=nick)
+    producer = KafkaProducer(bootstrap_servers="localhost:9092")
     th = threading.Thread(target=read_messages, args=(consumer,))
     th.start()
 
