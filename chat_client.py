@@ -26,7 +26,6 @@ def read_messages(consumer, *args):
         
 
         for channel, messages in received.items():
-            print(f"channel , messages: {channel}, {messages}")
             for msg in messages:
                 message = deserializer(msg.value.decode()) #dictionnaire obtenu
                 print("< #%s: %s" % (channel, message))
@@ -54,7 +53,6 @@ def cmd_join(consumer, producer, line):
         # y ajouter la dernière
         list_subscription = consumer.subscription()
         chan = "chat_channel_" + line[1:]
-        print(chan)
 
         if list_subscription == None:
             list_subscription = set()
@@ -66,22 +64,24 @@ def cmd_join(consumer, producer, line):
     else:
         print("Veuillez rentrer un nom de canal valide (commence par #, pas de caractères spéciaux excepté - et _")
         
-    
-
 def cmd_part(consumer, producer, line):
     # TODO À compléter
     # on récupère le set de nos abonnements
     channel_exist = consumer.subscription()
     chan = "chat_channel_"+line[1:]
-    
-    channel_exist.remove(chan)
-    if len(channel_exist) == 0:
-        consumer.unsubscribe()
 
-    else:
-        consumer.subscribe(channel_exist)
+    try:
+        channel_exist.remove(chan)
+        if len(channel_exist) == 0:
+            consumer.unsubscribe()
 
-    return channel_exist
+        else:
+            consumer.subscribe(channel_exist)
+
+        return channel_exist
+    except Exception as e:
+        print(e)
+        print('Something went wrong try again')
     
 
 def cmd_quit(producer, line):
@@ -89,7 +89,8 @@ def cmd_quit(producer, line):
     pass
 
 def change_curchan(curchan):
-    pass
+    print(curchan)
+    
 
 def main_loop(nick, consumer, producer):
     curchan = None
@@ -123,6 +124,7 @@ def main_loop(nick, consumer, producer):
         elif cmd == "part":
             cmd_part(consumer, producer, args)
             curchan = change_curchan(curchan)
+            print('la', curchan)
            # print(consumer, producer, args)
 
         elif cmd == "quit":
