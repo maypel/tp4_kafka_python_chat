@@ -7,9 +7,14 @@ import re
 
 from kafka import KafkaProducer, KafkaConsumer
 
+
 should_quit = False
+floodList = set()
+banList = set()
+
+
 ## Consumer : permet de lire le message
-def read_messages(consumer):
+def read_messages(consumer, nick):
     # Partie ou on va configurer le consumer
 
     ## A quoi sert le should_quit ???
@@ -21,35 +26,51 @@ def read_messages(consumer):
         ## Dans un channel spécifique, on récupère les messages qui sont reçues
         for channel, messages in received.items():
             for msg in messages:
-                msg = deserializer(msg.value.decode())
-                if msg["message"] == "rtfs":
-                    message = msg["name"]+" has join the channel"
-                    print(message)
-                elif msg["message"] == "rgbd":
-                    message = msg["name"]+" has left the channel"
-                    print(message)
-                elif msg["message"] == "tbgd":
-                    message = msg["name"]+" left the channel"
-                    print(message)
+                if channel.topic == "chat_bans":
+                    msg = msg.value.decode()
+                    msg = msg.split(':')
+                    name_ban = msg[0]
+                    message_ban = msg[1]
+                    if message_ban == "spam de message":
+                        banList.add(name_ban[1:])
+                    else:
+                        floodList.add(name_ban[1:])
                 else:
-                    message = msg["name"] + " : " + msg["message"]
-                    print(message)
+                    if nick not in floodList:
+                        msg = deserializer(msg.value.decode())
+                        if msg["message"] == "rtfs":
+                            message = msg["name"] + " has join the channel"
+                            print(message)
+                        elif msg["message"] == "rgbd":
+                            message = msg["name"] + " has left the channel"
+                            print(message)
+                        elif msg["message"] == "tbgd":
+                            message = msg["name"] + " left the channel"
+                            print(message)
+                        else:
+                            message = msg["name"] + " : " + msg["message"]
+                            print(message)
 
 
-def cmd_msg(producer, channel, line, nick):
+
+def cmd_msg(producer, consumer, channel, line, nick):
     # Channel null : pas de channel déjà rejoint
-    if channel == None :
-        print("Pas de channel rejoint")
+    if nick not in banList:
+        if channel == None:
+            print("Pas de channel rejoint")
+        else:
+            chan = "chat_channel_" + channel
+
+            admin = "chat_admin"
+
+            dict = {"name": nick,
+                    "message": line}
+
+            producer.send(chan, serializer(dict))
+            producer.send(admin, serializer(dict))
     else:
-        chan = "chat_channel_"+channel
+        print("Vous avez été bannis pour cause de spam")
 
-        admin = "chat_admin"
-
-        dict = { "name" : nick,
-                 "message" : line}
-
-        producer.send(chan, serializer(dict))
-        producer.send(admin, serializer(dict))
 
 
 def cmd_join(consumer, producer, line, nick):
@@ -60,9 +81,11 @@ def cmd_join(consumer, producer, line, nick):
         chanExist = consumer.subscription()
         if chanExist == None:
             consumer.subscribe(channel)
+            consumer.subscribe("chat_admin")
         else:
             chanExist.add(channel)
             consumer.subscribe(chanExist)
+
         dict = {"name": nick,
                 "message" : "rtfs"}
 
@@ -83,8 +106,10 @@ def cmd_part(consumer, producer, line, nick):
     if reg_line.match(line):
 
         channel = "chat_channel_"+line[1:]
+
         dict = {"name": nick,
                 "message": "rgbd"}
+
         producer.send(channel, serializer(dict))
 
         if channel in consumer.subscription():
@@ -97,6 +122,7 @@ def cmd_part(consumer, producer, line, nick):
                 # Je choisis au hasard un channel avec pop dans les subscriptions restantes
                 # Je le réajoute dans les subscriptions
                 # Pas opti : situation ou je quitte un channel alors que je suis dans un autre
+                # conditionner pour qu'il ne puisse pas avoir le chat_bans ou le chat_admins
                 chanRand = consumer.subscription().pop()
                 sub = consumer.subscription()
                 sub.add(chanRand)
@@ -115,10 +141,12 @@ def cmd_part(consumer, producer, line, nick):
 
 def cmd_quit(producer, consumer, line, nick):
     chan = consumer.subscription()
+
     for channel in chan:
-        dict = { "name" : nick,
-                 "message" : "tbgd"}
-        producer.send(channel, serializer(dict))
+        if channel != "chat_bans":
+            dict = { "name" : nick,
+                    "message" : "tbgd"}
+            producer.send(channel, serializer(dict))
     pass
 
 
@@ -159,6 +187,7 @@ def main_loop(nick, consumer, producer):
     curchan = None
 
     while True:
+
         try:
             if curchan is None:
                 line = input("> ")
@@ -177,7 +206,7 @@ def main_loop(nick, consumer, producer):
             args = line
 
         if cmd == "msg":
-            cmd_msg(producer, curchan, args, nick)
+            cmd_msg(producer, consumer, curchan, args, nick)
         elif cmd == "join":
             curchan = cmd_join(consumer, producer, args, nick)
         elif cmd == "part":
@@ -198,11 +227,11 @@ def main():
         return 1
 
     nick = sys.argv[1]
-    consumer = KafkaConsumer(bootstrap_servers="localhost:9092", group_id=nick)
+    consumer = KafkaConsumer(bootstrap_servers="localhost:9092", group_id=nick, auto_offset_reset="latest")
     producer = KafkaProducer(bootstrap_servers="localhost:9092")
-    th = threading.Thread(target=read_messages, args=(consumer,))
+    consumer.subscribe("chat_bans")
+    th = threading.Thread(target=read_messages, args=(consumer,nick))
     th.start()
-
 
     try:
         main_loop(nick, consumer, producer)
